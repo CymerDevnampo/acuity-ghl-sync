@@ -1,17 +1,16 @@
 {
   "name": "acuity-ghl-sync",
   "version": "1.0.0",
-  "description": "",
+  "description": "Syncs Acuity appointment label colors to GHL pipeline stages",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "axios": "^1.16.1",
-    "crypto": "^1.0.1",
     "dotenv": "^17.4.2",
     "express": "^5.2.1"
   }

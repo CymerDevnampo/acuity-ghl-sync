@@ -7,22 +7,24 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ── CONFIG ─────────────────────────────────────────────────────────────────
-const ACUITY_USER_ID  = process.env.ACUITY_USER_ID  || '39473559';
-const ACUITY_API_KEY  = process.env.ACUITY_API_KEY  || '30dcdf5e39d15431ff3f52c22676e9b2';
-const GHL_API_TOKEN   = process.env.GHL_API_TOKEN   || 'pit-1b3db99b-0094-4da5-a139-a253e43bbf86';
+const ACUITY_USER_ID = process.env.ACUITY_USER_ID || '39473559';
+const ACUITY_API_KEY = process.env.ACUITY_API_KEY || '30dcdf5e39d15431ff3f52c22676e9b2';
+const GHL_API_TOKEN = process.env.GHL_API_TOKEN || 'pit-1b3db99b-0094-4da5-a139-a253e43bbf86';
 const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID || 'JCpDFKag6slapJ6L1r3';
-const PORT            = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000;
+const HOST = '0.0.0.0';
+const SERVER_URL = process.env.SERVER_URL || 'http://YOUR_SERVER';
 
 // ── COLOR → STATUS MAPPING ─────────────────────────────────────────────────
 // Acuity label colors → GHL pipeline stage names
 const COLOR_TO_STATUS = {
-  'orange':  'Follow-up',
-  'blue':    'Invoice Sent',
-  'yellow':  'Rescheduled',
-  'red':     'No Show',
-  'green':   'Completed',
-  'gray':    'In Progress',
-  'violet':  'Closed',
+  'orange': 'Follow-up',
+  'blue': 'Invoice Sent',
+  'yellow': 'Rescheduled',
+  'red': 'No Show',
+  'green': 'Completed',
+  'gray': 'In Progress',
+  'violet': 'Closed',
 };
 
 // GHL API base
@@ -190,8 +192,8 @@ app.get('/', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`\n🚀 Acuity → GHL Sync server running on port ${PORT}`);
-  console.log(`   Webhook URL: http://YOUR_SERVER:${PORT}/webhook/acuity`);
-  console.log(`   Health check: http://YOUR_SERVER:${PORT}/\n`);
+app.listen(PORT, HOST, () => {
+  console.log(`\n🚀 Acuity → GHL Sync server running on ${HOST}:${PORT}`);
+  console.log(`   Webhook URL: ${SERVER_URL}:${PORT}/webhook/acuity`);
+  console.log(`   Health check: ${SERVER_URL}:${PORT}/\n`);
 });
