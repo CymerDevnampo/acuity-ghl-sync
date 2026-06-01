@@ -122,10 +122,12 @@ app.post('/webhook/acuity', async (req, res) => {
     const apptRes = await acuity.get(`/appointments/${id}`);
     const appt = apptRes.data;
     console.log(`📅 Appointment: ${appt.firstName} ${appt.lastName} <${appt.email}>`);
-    console.log(`   Label color: ${appt.labelColor || 'none'}`);
+    console.log(`   Labels raw:`, JSON.stringify(appt.labels));
+    console.log(`   labelColor raw:`, appt.labelColor);
 
-    // Map label color to GHL status
-    const color = appt.labelColor?.toLowerCase();
+    // Acuity returns labels as an array of objects: [{ id, name, color }]
+    const color = (appt.labels?.[0]?.color || appt.labelColor)?.toLowerCase();
+    console.log(`   Label color: ${color || 'none'}`);
     const statusName = COLOR_TO_STATUS[color];
 
     if (!statusName) {
