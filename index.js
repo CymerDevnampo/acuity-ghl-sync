@@ -24,6 +24,7 @@ const COLOR_TO_STATUS = {
   'red': 'No Show',
   'green': 'Completed',
   'gray': 'In Progress',
+  'grey': 'In Progress',
   'violet': 'Closed',
 };
 
@@ -86,22 +87,23 @@ async function findOpportunityByContact(contactId, pipelineId) {
 
 // ── MOVE OPPORTUNITY TO STAGE ──────────────────────────────────────────────
 async function moveOpportunityToStage(opportunityId, pipelineId, stageId) {
-  await ghl.put(`/opportunities/${opportunityId}`, {
-    pipelineId,
-    pipelineStageId: stageId,
-  });
+  const payload = { pipelineId, pipelineStageId: stageId, status: 'open' };
+  console.log(`   📤 Moving opportunity ${opportunityId} with payload:`, JSON.stringify(payload));
+  await ghl.put(`/opportunities/${opportunityId}`, payload);
 }
 
 // ── CREATE OPPORTUNITY IF NOT EXISTS ──────────────────────────────────────
 async function createOpportunity(contact, pipelineId, stageId, appointmentName) {
-  const res = await ghl.post('/opportunities/', {
+  const payload = {
     pipelineId,
     locationId: GHL_LOCATION_ID,
     name: appointmentName || `${contact.firstName} ${contact.lastName}`,
     pipelineStageId: stageId,
     status: 'open',
     contactId: contact.id,
-  });
+  };
+  console.log('   📤 Creating opportunity with payload:', JSON.stringify(payload));
+  const res = await ghl.post('/opportunities/', payload);
   return res.data.opportunity;
 }
 
