@@ -72,7 +72,7 @@ async function getPipelineStages() {
 
 // ── FIND GHL CONTACT BY EMAIL ──────────────────────────────────────────────
 async function findContactByEmail(email) {
-  const res = await ghl.get(`/contacts/?locationId=${GHL_LOCATION_ID}&email=${encodeURIComponent(email)}`);
+  const res = await ghl.get(`/contacts/?locationId=${GHL_LOCATION_ID}&query=${encodeURIComponent(email)}`);
   const contacts = res.data.contacts || [];
   return contacts[0] || null;
 }
