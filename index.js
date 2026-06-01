@@ -7,16 +7,16 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ── CONFIG ─────────────────────────────────────────────────────────────────
-const ACUITY_USER_ID = process.env.ACUITY_USER_ID || '39473559';
-const ACUITY_API_KEY = process.env.ACUITY_API_KEY || '30dcdf5e39d15431ff3f52c22676e9b2';
-const GHL_API_TOKEN = process.env.GHL_API_TOKEN || 'pit-eefdad25-8173-4bd9-bfbc-1830ece9e17f';
-const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID || 'JCpDFKag6slapjJ6L1r3';
-const PIPELINE_NAME = process.env.PIPELINE_NAME || 'Acuity Sync Test';
+const ACUITY_USER_ID = process.env.ACUITY_USER_ID || '';
+const ACUITY_API_KEY = process.env.ACUITY_API_KEY || '';
+const GHL_API_TOKEN = process.env.GHL_API_TOKEN || '';
+const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID || '`';
 const PORT = process.env.PORT || 3000;
 const HOST = '0.0.0.0';
 const SERVER_URL = process.env.SERVER_URL || 'http://YOUR_SERVER';
 
 // ── COLOR → STATUS MAPPING ─────────────────────────────────────────────────
+// Acuity label colors → GHL pipeline stage names
 const COLOR_TO_STATUS = {
   'orange': 'Follow-up',
   'blue': 'Invoice Sent',
@@ -44,7 +44,7 @@ const acuity = axios.create({
 });
 
 // ── CACHE: pipeline stages ─────────────────────────────────────────────────
-let pipelineCache = null;
+let pipelineCache = null; // { pipelineId, stages: { 'No Show': stageId, ... } }
 
 async function getPipelineStages() {
   if (pipelineCache) return pipelineCache;
@@ -55,6 +55,7 @@ async function getPipelineStages() {
   if (!pipelines.length) throw new Error('No pipelines found in GHL');
 
   // Target specific pipeline by name
+  const PIPELINE_NAME = process.env.PIPELINE_NAME || 'Acuity Sync Test';
   const pipeline = pipelines.find(p => p.name.startsWith(PIPELINE_NAME)) || pipelines[0];
   console.log('📋 Using pipeline:', pipeline.name);
 
@@ -111,7 +112,9 @@ app.post('/webhook/acuity', async (req, res) => {
     console.log(`\n🔔 Acuity webhook: action=${action}, id=${id}`);
 
     // We care about appointment changes (reschedule, cancel, change = label change)
-    if (!['appointment.scheduled', 'appointment.rescheduled', 'appointment.changed', 'appointment.canceled'].includes(action)) {
+    // Acuity sends short action names: 'scheduled', 'rescheduled', 'changed', 'canceled'
+    const normalizedAction = action.replace('appointment.', '');
+    if (!['scheduled', 'rescheduled', 'changed', 'canceled'].includes(normalizedAction)) {
       return res.json({ status: 'ignored', reason: 'unhandled action' });
     }
 
