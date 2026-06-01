@@ -23,6 +23,7 @@ const COLOR_TO_STATUS = {
   'yellow': 'Rescheduled',
   'red': 'No Show',
   'green': 'Completed',
+  'cyan': 'Completed',
   'gray': 'In Progress',
   'grey': 'In Progress',
   'violet': 'Closed',
@@ -167,7 +168,7 @@ app.post('/webhook/acuity', async (req, res) => {
       console.log(`   🚀 Moved opportunity to "${statusName}"`);
     } else {
       // Create new opportunity in the right stage
-      opportunity = await createOpportunity(contact, pipelineId, stageId, appt.type);
+      opportunity = await createOpportunity(contact, pipelineId, stageId, null);
       console.log(`   ✨ Created new opportunity in "${statusName}"`);
     }
 
