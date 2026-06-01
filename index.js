@@ -9,14 +9,14 @@ app.use(express.urlencoded({ extended: true }));
 // ── CONFIG ─────────────────────────────────────────────────────────────────
 const ACUITY_USER_ID = process.env.ACUITY_USER_ID || '39473559';
 const ACUITY_API_KEY = process.env.ACUITY_API_KEY || '30dcdf5e39d15431ff3f52c22676e9b2';
-const GHL_API_TOKEN = process.env.GHL_API_TOKEN || 'pit-1b3db99b-0094-4da5-a139-a253e43bbf86';
-const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID || 'JCpDFKag6slapJ6L1r3';
+const GHL_API_TOKEN = process.env.GHL_API_TOKEN || 'pit-eefdad25-8173-4bd9-bfbc-1830ece9e17f';
+const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID || 'JCpDFKag6slapjJ6L1r3';
+const PIPELINE_NAME = process.env.PIPELINE_NAME || 'Acuity Sync Test';
 const PORT = process.env.PORT || 3000;
 const HOST = '0.0.0.0';
 const SERVER_URL = process.env.SERVER_URL || 'http://YOUR_SERVER';
 
 // ── COLOR → STATUS MAPPING ─────────────────────────────────────────────────
-// Acuity label colors → GHL pipeline stage names
 const COLOR_TO_STATUS = {
   'orange': 'Follow-up',
   'blue': 'Invoice Sent',
@@ -44,7 +44,7 @@ const acuity = axios.create({
 });
 
 // ── CACHE: pipeline stages ─────────────────────────────────────────────────
-let pipelineCache = null; // { pipelineId, stages: { 'No Show': stageId, ... } }
+let pipelineCache = null;
 
 async function getPipelineStages() {
   if (pipelineCache) return pipelineCache;
@@ -54,8 +54,8 @@ async function getPipelineStages() {
 
   if (!pipelines.length) throw new Error('No pipelines found in GHL');
 
-  // Use first pipeline (or change index to pick the right one)
-  const pipeline = pipelines[0];
+  // Target specific pipeline by name
+  const pipeline = pipelines.find(p => p.name.startsWith(PIPELINE_NAME)) || pipelines[0];
   console.log('📋 Using pipeline:', pipeline.name);
 
   const stages = {};
@@ -194,6 +194,6 @@ app.get('/', async (req, res) => {
 
 app.listen(PORT, HOST, () => {
   console.log(`\n🚀 Acuity → GHL Sync server running on ${HOST}:${PORT}`);
-  console.log(`   Webhook URL: ${SERVER_URL}:${PORT}/webhook/acuity`);
-  console.log(`   Health check: ${SERVER_URL}:${PORT}/\n`);
+  console.log(`   Webhook URL: ${SERVER_URL}/webhook/acuity`);
+  console.log(`   Health check: ${SERVER_URL}/\n`);
 });
