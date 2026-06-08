@@ -21,7 +21,7 @@ const TVSTARTUP_DATASET_ID = process.env.TVSTARTUP_DATASET_ID || '';
 const TVSTARTUP_ACCESS_TOKEN = process.env.TVSTARTUP_ACCESS_TOKEN || '';
 
 // ── APPOINTMENT TYPE IDs ───────────────────────────────────────────────────
-const LIVE_DEMO_APPOINTMENT_TYPE_ID = parseInt(process.env.LIVE_DEMO_APPOINTMENT_TYPE_ID || '');
+const LIVE_DEMO_APPOINTMENT_TYPE_ID = parseInt(process.env.LIVE_DEMO_APPOINTMENT_TYPE_ID || '78464550');
 
 // ── META LEAD TAG ──────────────────────────────────────────────────────────
 const META_LEAD_TAG = 'facebook - start a tv channel';
@@ -194,8 +194,8 @@ async function handleLiveDemoBooking(appt) {
 
     // Get META Leads pipeline
     const { pipelineId, stages } = await getMetaLeadsPipelineStages();
-    const stageId = stages['Scheduled Demo'];
-    if (!stageId) throw new Error('Stage "Scheduled Demo" not found in META Leads pipeline');
+    const stageId = stages['2. Scheduled Demo'];
+    if (!stageId) throw new Error('Stage "2. Scheduled Demo" not found in META Leads pipeline');
 
     // Find or create opportunity
     let opportunity = await findMetaLeadsOpportunity(contact.id, pipelineId);
@@ -249,9 +249,9 @@ async function handleLabelChange(appt) {
 
     let targetStage;
     if (color === 'red') {
-        targetStage = 'Missed Demo';
+        targetStage = '4. Missed Demo';
     } else if (color) {
-        targetStage = 'Attended Demo';
+        targetStage = '3. Attended Demo';
     } else {
         return { status: 'skipped', reason: 'no label color' };
     }
@@ -289,17 +289,24 @@ app.post('/webhook/acuity', async (req, res) => {
         console.log(`   appointmentTypeID: ${appt.appointmentTypeID}`);
         console.log(`   Labels:`, JSON.stringify(appt.labels));
 
-        // ── TASK 2: Live Demo Booking ──────────────────────────────────────────
-        if (normalizedAction === 'scheduled' && appt.appointmentTypeID === LIVE_DEMO_APPOINTMENT_TYPE_ID) {
-            const result = await handleLiveDemoBooking(appt);
-            return res.json(result);
-        }
+        // ── TASK 2: Live Demo Booking (scheduled or changed with no label = new booking) ──
+        if (appt.appointmentTypeID === LIVE_DEMO_APPOINTMENT_TYPE_ID) {
+            const color = (appt.labels?.[0]?.color || appt.labelColor)?.toLowerCase();
 
-        // ── TASK 3: Label Change on Live Demo ──────────────────────────────────
-        if (normalizedAction === 'changed' && appt.appointmentTypeID === LIVE_DEMO_APPOINTMENT_TYPE_ID) {
-            const result = await handleLabelChange(appt);
-            if (result) return res.json(result);
-            // If null returned, fall through to existing color mapping below
+            // If scheduled OR changed with no label = treat as new booking
+            if (normalizedAction === 'scheduled' || (normalizedAction === 'changed' && !color)) {
+                const result = await handleLiveDemoBooking(appt);
+                return res.json(result);
+            }
+
+            // If changed with a label = treat as attendance update
+            if (normalizedAction === 'changed' && color) {
+                const result = await handleLabelChange(appt);
+                if (result) return res.json(result);
+            }
+
+            // For rescheduled or canceled, just ignore for now
+            return res.json({ status: 'ignored', reason: `Live Demo ${normalizedAction} - no action needed` });
         }
 
         // ── EXISTING: Color → Stage mapping for other appointments ────────────
