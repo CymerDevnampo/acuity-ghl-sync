@@ -57,7 +57,7 @@ const acuity = axios.create({
 
 // ── CACHE: pipelines ───────────────────────────────────────────────────────
 let pipelineCache = null;         // existing Acuity sync pipeline
-let metaLeadsPipelineCache = null; // META Leads - TVStartup pipeline
+let metaLeadsPipelineCache = null; // Meta Leads pipeline
 
 async function getPipelineStages() {
     if (pipelineCache) return pipelineCache;
@@ -80,8 +80,8 @@ async function getMetaLeadsPipelineStages() {
     if (metaLeadsPipelineCache) return metaLeadsPipelineCache;
     const res = await ghl.get(`/opportunities/pipelines?locationId=${GHL_LOCATION_ID}`);
     const pipelines = res.data.pipelines || [];
-    const pipeline = pipelines.find(p => p.name === 'META Leads - TVStartup');
-    if (!pipeline) throw new Error('META Leads - TVStartup pipeline not found in GHL');
+    const pipeline = pipelines.find(p => p.name === 'Meta Leads');
+    if (!pipeline) throw new Error('Meta Leads pipeline not found in GHL');
     console.log('📋 Using META Leads pipeline:', pipeline.name);
     const stages = {};
     for (const stage of pipeline.stages) {
@@ -194,8 +194,8 @@ async function handleLiveDemoBooking(appt) {
 
     // Get META Leads pipeline
     const { pipelineId, stages } = await getMetaLeadsPipelineStages();
-    const stageId = stages['2. Scheduled Demo'];
-    if (!stageId) throw new Error('Stage "2. Scheduled Demo" not found in META Leads pipeline');
+    const stageId = stages['Scheduled Demo'];
+    if (!stageId) throw new Error('Stage "Scheduled Demo" not found in Meta Leads pipeline');
 
     // Find or create opportunity
     let opportunity = await findMetaLeadsOpportunity(contact.id, pipelineId);
@@ -249,9 +249,9 @@ async function handleLabelChange(appt) {
 
     let targetStage;
     if (color === 'red') {
-        targetStage = '4. Missed Demo';
+        targetStage = 'Missed Demo';
     } else if (color) {
-        targetStage = '3. Attended Demo';
+        targetStage = 'Attended Demo';
     } else {
         return { status: 'skipped', reason: 'no label color' };
     }
