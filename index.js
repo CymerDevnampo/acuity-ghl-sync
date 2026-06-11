@@ -49,8 +49,8 @@ async function getMetaLeadsPipelineStages() {
     if (metaLeadsPipelineCache) return metaLeadsPipelineCache;
     const res = await ghl.get(`/opportunities/pipelines?locationId=${GHL_LOCATION_ID}`);
     const pipelines = res.data.pipelines || [];
-    const pipeline = pipelines.find(p => p.name === 'Meta Leads');
-    if (!pipeline) throw new Error('Meta Leads pipeline not found in GHL');
+    const pipeline = pipelines.find(p => p.name === 'META Leads');
+    if (!pipeline) throw new Error('META Leads pipeline not found in GHL');
     console.log('📋 Using Meta Leads pipeline:', pipeline.name);
     const stages = {};
     for (const stage of pipeline.stages) {
