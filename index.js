@@ -23,8 +23,13 @@ const TVSTARTUP_ACCESS_TOKEN = process.env.TVSTARTUP_ACCESS_TOKEN || '';
 // ── APPOINTMENT TYPE IDs ───────────────────────────────────────────────────
 const LIVE_DEMO_APPOINTMENT_TYPE_ID = parseInt(process.env.LIVE_DEMO_APPOINTMENT_TYPE_ID || '78464550');
 
-// ── META LEAD TAG ──────────────────────────────────────────────────────────
-const META_LEAD_TAG = 'facebook - start a tv channel';
+// ── PIPELINE CONFIGS ───────────────────────────────────────────────────────
+// Each entry: { tag, pipelineName }
+// The webhook checks the contact's tags and routes to the matching pipeline.
+const PIPELINE_CONFIGS = [
+    { tag: 'facebook - start a tv channel', pipelineName: 'META Leads' },
+    { tag: 'facebook - podcasters', pipelineName: 'Podcasters' },
+];
 
 // ── GHL API ────────────────────────────────────────────────────────────────
 const ghl = axios.create({
@@ -42,23 +47,23 @@ const acuity = axios.create({
     auth: { username: ACUITY_USER_ID, password: ACUITY_API_KEY },
 });
 
-// ── CACHE: Meta Leads pipeline ─────────────────────────────────────────────
-let metaLeadsPipelineCache = null;
+// ── PIPELINE CACHE (keyed by pipeline name) ────────────────────────────────
+const pipelineCache = {};
 
-async function getMetaLeadsPipelineStages() {
-    if (metaLeadsPipelineCache) return metaLeadsPipelineCache;
+async function getPipelineStages(pipelineName) {
+    if (pipelineCache[pipelineName]) return pipelineCache[pipelineName];
     const res = await ghl.get(`/opportunities/pipelines?locationId=${GHL_LOCATION_ID}`);
     const pipelines = res.data.pipelines || [];
-    const pipeline = pipelines.find(p => p.name === 'META Leads');
-    if (!pipeline) throw new Error('META Leads pipeline not found in GHL');
-    console.log('📋 Using Meta Leads pipeline:', pipeline.name);
+    const pipeline = pipelines.find(p => p.name.toLowerCase() === pipelineName.toLowerCase());
+    if (!pipeline) throw new Error(`Pipeline "${pipelineName}" not found in GHL`);
+    console.log(`📋 Using pipeline: ${pipeline.name}`);
     const stages = {};
     for (const stage of pipeline.stages) {
         stages[stage.name] = stage.id;
         console.log(`   Stage: "${stage.name}" → ${stage.id}`);
     }
-    metaLeadsPipelineCache = { pipelineId: pipeline.id, stages };
-    return metaLeadsPipelineCache;
+    pipelineCache[pipelineName] = { pipelineId: pipeline.id, stages };
+    return pipelineCache[pipelineName];
 }
 
 // ── FIND GHL CONTACT BY EMAIL ──────────────────────────────────────────────
@@ -68,14 +73,14 @@ async function findContactByEmail(email) {
     return contacts[0] || null;
 }
 
-// ── CHECK IF CONTACT HAS META LEAD TAG ────────────────────────────────────
-function contactHasMetaTag(contact) {
-    const tags = contact.tags || [];
-    return tags.some(tag => tag.toLowerCase() === META_LEAD_TAG.toLowerCase());
+// ── MATCH CONTACT TO A PIPELINE CONFIG ────────────────────────────────────
+function matchPipelineConfig(contact) {
+    const tags = (contact.tags || []).map(t => t.toLowerCase());
+    return PIPELINE_CONFIGS.find(cfg => tags.includes(cfg.tag.toLowerCase())) || null;
 }
 
-// ── FIND OPPORTUNITY IN META LEADS PIPELINE ───────────────────────────────
-async function findMetaLeadsOpportunity(contactId, pipelineId) {
+// ── FIND OPPORTUNITY IN A PIPELINE ────────────────────────────────────────
+async function findOpportunity(contactId, pipelineId) {
     const res = await ghl.get(`/opportunities/search?location_id=${GHL_LOCATION_ID}&contact_id=${contactId}`);
     const opps = res.data.opportunities || [];
     return opps.find(o => o.pipelineId === pipelineId) || null;
@@ -111,22 +116,18 @@ function hashData(value) {
 
 // ── FIRE META CAPI EVENT ───────────────────────────────────────────────────
 async function fireMetaCAPI({ datasetId, accessToken, eventName, contact, eventTime }) {
-    const userData = {
-        em: [hashData(contact.email)],
-    };
+    const userData = { em: [hashData(contact.email)] };
     if (contact.phone) userData.ph = [hashData(contact.phone.replace(/\D/g, ''))];
     if (contact.firstName) userData.fn = [hashData(contact.firstName)];
     if (contact.lastName) userData.ln = [hashData(contact.lastName)];
 
     const payload = {
-        data: [
-            {
-                event_name: eventName,
-                event_time: eventTime || Math.floor(Date.now() / 1000),
-                action_source: 'system_generated',
-                user_data: userData,
-            },
-        ],
+        data: [{
+            event_name: eventName,
+            event_time: eventTime || Math.floor(Date.now() / 1000),
+            action_source: 'system_generated',
+            user_data: userData,
+        }],
     };
 
     const url = `https://graph.facebook.com/v18.0/${datasetId}/events?access_token=${accessToken}`;
@@ -141,22 +142,23 @@ async function handleLiveDemoBooking(appt) {
 
     const contact = await findContactByEmail(appt.email);
     if (!contact) {
-        console.log(`   ⚠️  Contact not found in GHL for: ${appt.email} — skipping`);
+        console.log(`   ⚠️  Contact not found in GHL — skipping`);
         return { status: 'skipped', reason: 'contact not found in GHL' };
     }
 
-    if (!contactHasMetaTag(contact)) {
-        console.log(`   ⚠️  Contact does not have tag "${META_LEAD_TAG}" — skipping Meta CAPI`);
-        return { status: 'skipped', reason: 'contact not a meta lead' };
+    const config = matchPipelineConfig(contact);
+    if (!config) {
+        console.log(`   ⚠️  No matching pipeline tag found on contact — skipping`);
+        return { status: 'skipped', reason: 'no matching pipeline tag' };
     }
 
-    console.log(`   ✅ Meta lead matched: ${contact.firstName} ${contact.lastName}`);
+    console.log(`   ✅ Matched: tag="${config.tag}" → pipeline="${config.pipelineName}"`);
 
-    const { pipelineId, stages } = await getMetaLeadsPipelineStages();
+    const { pipelineId, stages } = await getPipelineStages(config.pipelineName);
     const stageId = stages['Scheduled Demo'];
-    if (!stageId) throw new Error('Stage "Scheduled Demo" not found in Meta Leads pipeline');
+    if (!stageId) throw new Error(`Stage "Scheduled Demo" not found in "${config.pipelineName}" pipeline`);
 
-    let opportunity = await findMetaLeadsOpportunity(contact.id, pipelineId);
+    let opportunity = await findOpportunity(contact.id, pipelineId);
     if (opportunity) {
         await moveOpportunityToStage(opportunity.id, pipelineId, stageId);
         console.log(`   🚀 Moved to "Scheduled Demo"`);
@@ -177,17 +179,15 @@ async function handleLiveDemoBooking(appt) {
         },
     });
 
-    return { status: 'success', action: 'scheduled_demo', contact: `${appt.firstName} ${appt.lastName}` };
+    return { status: 'success', action: 'scheduled_demo', pipeline: config.pipelineName, contact: `${appt.firstName} ${appt.lastName}` };
 }
 
 // ── HANDLE LABEL CHANGE ────────────────────────────────────────────────────
 async function handleLabelChange(appt) {
     const color = (appt.labels?.[0]?.color || appt.labelColor)?.toLowerCase();
-    console.log(`\n🏷️  Label change detected: color=${color || 'none'} for ${appt.email}`);
+    console.log(`\n🏷️  Label change: color=${color || 'none'} for ${appt.email}`);
 
-    if (appt.appointmentTypeID !== LIVE_DEMO_APPOINTMENT_TYPE_ID) {
-        return null;
-    }
+    if (appt.appointmentTypeID !== LIVE_DEMO_APPOINTMENT_TYPE_ID) return null;
 
     const contact = await findContactByEmail(appt.email);
     if (!contact) {
@@ -195,12 +195,13 @@ async function handleLabelChange(appt) {
         return { status: 'skipped', reason: 'contact not found' };
     }
 
-    if (!contactHasMetaTag(contact)) {
-        console.log(`   ⚠️  Not a meta lead — skipping`);
-        return { status: 'skipped', reason: 'not a meta lead' };
+    const config = matchPipelineConfig(contact);
+    if (!config) {
+        console.log(`   ⚠️  No matching pipeline tag found on contact — skipping`);
+        return { status: 'skipped', reason: 'no matching pipeline tag' };
     }
 
-    const { pipelineId, stages } = await getMetaLeadsPipelineStages();
+    const { pipelineId, stages } = await getPipelineStages(config.pipelineName);
 
     let targetStage;
     if (color === 'red') {
@@ -212,9 +213,9 @@ async function handleLabelChange(appt) {
     }
 
     const stageId = stages[targetStage];
-    if (!stageId) throw new Error(`Stage "${targetStage}" not found`);
+    if (!stageId) throw new Error(`Stage "${targetStage}" not found in "${config.pipelineName}"`);
 
-    let opportunity = await findMetaLeadsOpportunity(contact.id, pipelineId);
+    let opportunity = await findOpportunity(contact.id, pipelineId);
     if (opportunity) {
         await moveOpportunityToStage(opportunity.id, pipelineId, stageId);
         console.log(`   🚀 Moved to "${targetStage}"`);
@@ -223,7 +224,7 @@ async function handleLabelChange(appt) {
         console.log(`   ✨ Created opportunity in "${targetStage}"`);
     }
 
-    return { status: 'success', action: targetStage, contact: `${appt.firstName} ${appt.lastName}` };
+    return { status: 'success', action: targetStage, pipeline: config.pipelineName, contact: `${appt.firstName} ${appt.lastName}` };
 }
 
 // ── MAIN WEBHOOK HANDLER ───────────────────────────────────────────────────
@@ -270,13 +271,16 @@ app.post('/webhook/acuity', async (req, res) => {
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
 app.get('/', async (req, res) => {
     try {
-        const { pipelineId, stages } = await getMetaLeadsPipelineStages();
+        const pipelines = await Promise.all(
+            PIPELINE_CONFIGS.map(async cfg => {
+                const { pipelineId, stages } = await getPipelineStages(cfg.pipelineName);
+                return { tag: cfg.tag, pipeline: cfg.pipelineName, pipelineId, stages: Object.keys(stages) };
+            })
+        );
         res.json({
             status: '✅ Acuity → GHL Sync is running',
-            pipeline: pipelineId,
-            stages: Object.keys(stages),
             liveDemoAppointmentTypeId: LIVE_DEMO_APPOINTMENT_TYPE_ID,
-            metaLeadTag: META_LEAD_TAG,
+            pipelines,
         });
     } catch (err) {
         res.status(500).json({ status: '❌ Error', error: err.message });
