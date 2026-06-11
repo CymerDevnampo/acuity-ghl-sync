@@ -26,19 +26,6 @@ const LIVE_DEMO_APPOINTMENT_TYPE_ID = parseInt(process.env.LIVE_DEMO_APPOINTMENT
 // ── META LEAD TAG ──────────────────────────────────────────────────────────
 const META_LEAD_TAG = 'facebook - start a tv channel';
 
-// ── COLOR → STAGE MAPPING (existing Acuity sync) ──────────────────────────
-const COLOR_TO_STATUS = {
-    'orange': 'Follow-up',
-    'blue': 'Invoice Sent',
-    'yellow': 'Rescheduled',
-    'red': 'No Show',
-    'green': 'Completed',
-    'cyan': 'Completed',
-    'gray': 'In Progress',
-    'grey': 'In Progress',
-    'violet': 'Closed',
-};
-
 // ── GHL API ────────────────────────────────────────────────────────────────
 const ghl = axios.create({
     baseURL: 'https://services.leadconnectorhq.com',
@@ -55,26 +42,8 @@ const acuity = axios.create({
     auth: { username: ACUITY_USER_ID, password: ACUITY_API_KEY },
 });
 
-// ── CACHE: pipelines ───────────────────────────────────────────────────────
-let pipelineCache = null;         // existing Acuity sync pipeline
-let metaLeadsPipelineCache = null; // Meta Leads pipeline
-
-async function getPipelineStages() {
-    if (pipelineCache) return pipelineCache;
-    const res = await ghl.get(`/opportunities/pipelines?locationId=${GHL_LOCATION_ID}`);
-    const pipelines = res.data.pipelines || [];
-    if (!pipelines.length) throw new Error('No pipelines found in GHL');
-    const PIPELINE_NAME = process.env.PIPELINE_NAME || 'Acuity Sync Test';
-    const pipeline = pipelines.find(p => p.name.startsWith(PIPELINE_NAME)) || pipelines[0];
-    console.log('📋 Using pipeline:', pipeline.name);
-    const stages = {};
-    for (const stage of pipeline.stages) {
-        stages[stage.name] = stage.id;
-        console.log(`   Stage: "${stage.name}" → ${stage.id}`);
-    }
-    pipelineCache = { pipelineId: pipeline.id, stages };
-    return pipelineCache;
-}
+// ── CACHE: Meta Leads pipeline ─────────────────────────────────────────────
+let metaLeadsPipelineCache = null;
 
 async function getMetaLeadsPipelineStages() {
     if (metaLeadsPipelineCache) return metaLeadsPipelineCache;
@@ -82,7 +51,7 @@ async function getMetaLeadsPipelineStages() {
     const pipelines = res.data.pipelines || [];
     const pipeline = pipelines.find(p => p.name === 'Meta Leads');
     if (!pipeline) throw new Error('Meta Leads pipeline not found in GHL');
-    console.log('📋 Using META Leads pipeline:', pipeline.name);
+    console.log('📋 Using Meta Leads pipeline:', pipeline.name);
     const stages = {};
     for (const stage of pipeline.stages) {
         stages[stage.name] = stage.id;
@@ -107,13 +76,6 @@ function contactHasMetaTag(contact) {
 
 // ── FIND OPPORTUNITY IN META LEADS PIPELINE ───────────────────────────────
 async function findMetaLeadsOpportunity(contactId, pipelineId) {
-    const res = await ghl.get(`/opportunities/search?location_id=${GHL_LOCATION_ID}&contact_id=${contactId}`);
-    const opps = res.data.opportunities || [];
-    return opps.find(o => o.pipelineId === pipelineId) || null;
-}
-
-// ── FIND OPPORTUNITY (generic) ─────────────────────────────────────────────
-async function findOpportunityByContact(contactId, pipelineId) {
     const res = await ghl.get(`/opportunities/search?location_id=${GHL_LOCATION_ID}&contact_id=${contactId}`);
     const opps = res.data.opportunities || [];
     return opps.find(o => o.pipelineId === pipelineId) || null;
@@ -173,18 +135,16 @@ async function fireMetaCAPI({ datasetId, accessToken, eventName, contact, eventT
     return res.data;
 }
 
-// ── HANDLE LIVE DEMO BOOKING (Task 2) ─────────────────────────────────────
+// ── HANDLE LIVE DEMO BOOKING ───────────────────────────────────────────────
 async function handleLiveDemoBooking(appt) {
     console.log(`\n🎯 Live Demo booking detected for: ${appt.email}`);
 
-    // Find contact in GHL
     const contact = await findContactByEmail(appt.email);
     if (!contact) {
         console.log(`   ⚠️  Contact not found in GHL for: ${appt.email} — skipping`);
         return { status: 'skipped', reason: 'contact not found in GHL' };
     }
 
-    // Check if contact has Meta lead tag
     if (!contactHasMetaTag(contact)) {
         console.log(`   ⚠️  Contact does not have tag "${META_LEAD_TAG}" — skipping Meta CAPI`);
         return { status: 'skipped', reason: 'contact not a meta lead' };
@@ -192,12 +152,10 @@ async function handleLiveDemoBooking(appt) {
 
     console.log(`   ✅ Meta lead matched: ${contact.firstName} ${contact.lastName}`);
 
-    // Get META Leads pipeline
     const { pipelineId, stages } = await getMetaLeadsPipelineStages();
     const stageId = stages['Scheduled Demo'];
     if (!stageId) throw new Error('Stage "Scheduled Demo" not found in Meta Leads pipeline');
 
-    // Find or create opportunity
     let opportunity = await findMetaLeadsOpportunity(contact.id, pipelineId);
     if (opportunity) {
         await moveOpportunityToStage(opportunity.id, pipelineId, stageId);
@@ -207,7 +165,6 @@ async function handleLiveDemoBooking(appt) {
         console.log(`   ✨ Created opportunity in "Scheduled Demo"`);
     }
 
-    // Fire Meta CAPI Schedule event
     await fireMetaCAPI({
         datasetId: TVSTARTUP_DATASET_ID,
         accessToken: TVSTARTUP_ACCESS_TOKEN,
@@ -223,14 +180,12 @@ async function handleLiveDemoBooking(appt) {
     return { status: 'success', action: 'scheduled_demo', contact: `${appt.firstName} ${appt.lastName}` };
 }
 
-// ── HANDLE LABEL CHANGE (Task 3) ───────────────────────────────────────────
+// ── HANDLE LABEL CHANGE ────────────────────────────────────────────────────
 async function handleLabelChange(appt) {
     const color = (appt.labels?.[0]?.color || appt.labelColor)?.toLowerCase();
     console.log(`\n🏷️  Label change detected: color=${color || 'none'} for ${appt.email}`);
 
-    // Only process if it's a Live Demo appointment
     if (appt.appointmentTypeID !== LIVE_DEMO_APPOINTMENT_TYPE_ID) {
-        // Fall through to existing color→status mapping for other appointments
         return null;
     }
 
@@ -282,68 +237,29 @@ app.post('/webhook/acuity', async (req, res) => {
             return res.json({ status: 'ignored', reason: 'unhandled action' });
         }
 
-        // Fetch full appointment from Acuity
         const apptRes = await acuity.get(`/appointments/${id}`);
         const appt = apptRes.data;
         console.log(`📅 Appointment: ${appt.firstName} ${appt.lastName} <${appt.email}>`);
         console.log(`   appointmentTypeID: ${appt.appointmentTypeID}`);
         console.log(`   Labels:`, JSON.stringify(appt.labels));
 
-        // ── TASK 2: Live Demo Booking (scheduled or changed with no label = new booking) ──
         if (appt.appointmentTypeID === LIVE_DEMO_APPOINTMENT_TYPE_ID) {
             const color = (appt.labels?.[0]?.color || appt.labelColor)?.toLowerCase();
 
-            // If scheduled OR changed with no label = treat as new booking
             if (normalizedAction === 'scheduled' || (normalizedAction === 'changed' && !color)) {
                 const result = await handleLiveDemoBooking(appt);
                 return res.json(result);
             }
 
-            // If changed with a label = treat as attendance update
             if (normalizedAction === 'changed' && color) {
                 const result = await handleLabelChange(appt);
                 if (result) return res.json(result);
             }
 
-            // For rescheduled or canceled, just ignore for now
             return res.json({ status: 'ignored', reason: `Live Demo ${normalizedAction} - no action needed` });
         }
 
-        // ── EXISTING: Color → Stage mapping for other appointments ────────────
-        const color = (appt.labels?.[0]?.color || appt.labelColor)?.toLowerCase();
-        const statusName = COLOR_TO_STATUS[color];
-
-        if (!statusName) {
-            console.log(`   ⚠️  No mapping for color "${color}" — skipping`);
-            return res.json({ status: 'ignored', reason: `no mapping for color: ${color}` });
-        }
-
-        const { pipelineId, stages } = await getPipelineStages();
-        const stageId = stages[statusName];
-        if (!stageId) {
-            return res.status(400).json({ error: `Stage "${statusName}" not found` });
-        }
-
-        const contact = await findContactByEmail(appt.email);
-        if (!contact) {
-            return res.status(404).json({ error: `Contact not found: ${appt.email}` });
-        }
-
-        let opportunity = await findOpportunityByContact(contact.id, pipelineId);
-        if (opportunity) {
-            await moveOpportunityToStage(opportunity.id, pipelineId, stageId);
-            console.log(`   🚀 Moved to "${statusName}"`);
-        } else {
-            opportunity = await createOpportunity(contact, pipelineId, stageId, null);
-            console.log(`   ✨ Created opportunity in "${statusName}"`);
-        }
-
-        return res.json({
-            status: 'success',
-            contact: `${appt.firstName} ${appt.lastName}`,
-            movedTo: statusName,
-            opportunityId: opportunity.id,
-        });
+        return res.json({ status: 'ignored', reason: 'not a Live Demo appointment' });
 
     } catch (err) {
         console.error('❌ Error:', err.response?.data || err.message);
@@ -354,12 +270,11 @@ app.post('/webhook/acuity', async (req, res) => {
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
 app.get('/', async (req, res) => {
     try {
-        const { pipelineId, stages } = await getPipelineStages();
+        const { pipelineId, stages } = await getMetaLeadsPipelineStages();
         res.json({
             status: '✅ Acuity → GHL Sync is running',
             pipeline: pipelineId,
             stages: Object.keys(stages),
-            colorMappings: COLOR_TO_STATUS,
             liveDemoAppointmentTypeId: LIVE_DEMO_APPOINTMENT_TYPE_ID,
             metaLeadTag: META_LEAD_TAG,
         });
