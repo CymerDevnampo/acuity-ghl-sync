@@ -20,15 +20,11 @@ const SERVER_URL = process.env.SERVER_URL || 'http://YOUR_SERVER';
 const TVSTARTUP_DATASET_ID = process.env.TVSTARTUP_DATASET_ID || '';
 const TVSTARTUP_ACCESS_TOKEN = process.env.TVSTARTUP_ACCESS_TOKEN || '';
 
-// ── APPOINTMENT TYPE IDs ───────────────────────────────────────────────────
-const LIVE_DEMO_APPOINTMENT_TYPE_ID = parseInt(process.env.LIVE_DEMO_APPOINTMENT_TYPE_ID || '78464550');
-
 // ── PIPELINE CONFIGS ───────────────────────────────────────────────────────
-// Each entry: { tag, pipelineName }
-// The webhook checks the contact's tags and routes to the matching pipeline.
+// Each entry: { tag, pipelineName, appointmentTypeId }
 const PIPELINE_CONFIGS = [
-    { tag: 'facebook - start a tv channel', pipelineName: 'META Leads' },
-    { tag: 'facebook - podcasters', pipelineName: 'Podcasters' },
+    { tag: 'facebook - start a tv channel', pipelineName: 'META Leads', appointmentTypeId: parseInt(process.env.META_LEADS_APPOINTMENT_TYPE_ID) },
+    { tag: 'facebook - podcasters', pipelineName: 'Podcasters', appointmentTypeId: parseInt(process.env.PODCASTERS_APPOINTMENT_TYPE_ID) },
 ];
 
 // ── GHL API ────────────────────────────────────────────────────────────────
@@ -187,7 +183,7 @@ async function handleLabelChange(appt) {
     const color = (appt.labels?.[0]?.color || appt.labelColor)?.toLowerCase();
     console.log(`\n🏷️  Label change: color=${color || 'none'} for ${appt.email}`);
 
-    if (appt.appointmentTypeID !== LIVE_DEMO_APPOINTMENT_TYPE_ID) return null;
+    if (!PIPELINE_CONFIGS.some(cfg => cfg.appointmentTypeId === appt.appointmentTypeID)) return null;
 
     const contact = await findContactByEmail(appt.email);
     if (!contact) {
@@ -244,7 +240,9 @@ app.post('/webhook/acuity', async (req, res) => {
         console.log(`   appointmentTypeID: ${appt.appointmentTypeID}`);
         console.log(`   Labels:`, JSON.stringify(appt.labels));
 
-        if (appt.appointmentTypeID === LIVE_DEMO_APPOINTMENT_TYPE_ID) {
+        const isLiveDemo = PIPELINE_CONFIGS.some(cfg => cfg.appointmentTypeId === appt.appointmentTypeID);
+
+        if (isLiveDemo) {
             const color = (appt.labels?.[0]?.color || appt.labelColor)?.toLowerCase();
 
             if (normalizedAction === 'scheduled' || (normalizedAction === 'changed' && !color)) {
@@ -279,7 +277,6 @@ app.get('/', async (req, res) => {
         );
         res.json({
             status: '✅ Acuity → GHL Sync is running',
-            liveDemoAppointmentTypeId: LIVE_DEMO_APPOINTMENT_TYPE_ID,
             pipelines,
         });
     } catch (err) {
